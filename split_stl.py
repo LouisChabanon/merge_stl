@@ -14,7 +14,11 @@ def detect_voxel_height(model):
     return voxel_height
 
 
-
+def create_top_bottom_faces(inbound_faces, voxel_height, minx, maxx, miny, maxy, z_bottom, z_top):
+    """
+    Crée des faces top et bottom pour combler les zones "intérieures" manquantes dans la tranche.
+    """
+    pass
 
 def main():
     """
@@ -47,9 +51,12 @@ def main():
             (model.vectors[:, :, 2].min(axis=1) >= z_bottom) & (model.vectors[:, :, 2].max(axis=1) <= z_top)]
 
         slice_mesh = mesh.Mesh(np.zeros(inbound_faces.shape[0], dtype=mesh.Mesh.dtype))
+        additional_faces = create_top_bottom_faces(inbound_faces, slice_size, minx, maxx, miny, maxy, z_bottom, z_top)
+        
+
         slice_mesh.vectors = inbound_faces
 
-        
+
         
         out_file = os.path.join(output_folder, f'slice_{slice_index}.stl')
         slice_mesh.save(out_file, mode=Mode.ASCII)
