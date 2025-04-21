@@ -54,6 +54,13 @@ def changment_de_base_ACP(input_path, output_path):
     """
     2e méthode de changement de base : ACP (Analyse de Composantes Principales)
     https://fr.wikipedia.org/wiki/Analyse_en_composantes_principales
+
+    input_path: chemin vers le fichier STL d'entrée
+    output_path: chemin vers le fichier STL de sortie
+
+    retourne le fichier STL dans un nouveau repère
+
+    problème: la direction de la pièce en sortie n'est pas forcement la même que dans le fichier d'entrée
     """
 
     m = mesh.Mesh.from_file(input_path)
@@ -65,7 +72,7 @@ def changment_de_base_ACP(input_path, output_path):
     # Décomposition en valeurs propres (SVD)
     #https://fr.wikipedia.org/wiki/D%C3%A9composition_en_valeurs_singuli%C3%A8res
     _, _, vt = np.linalg.svd(centered_pts, full_matrices=False)
-    # Direction principales
+    # Direction principales: e1, plus grande dilatation, e3, plus petite dilatation (normale de la surface)
     e1, e2, e3 = vt
 
     # On s'assure que la base est directe
@@ -79,13 +86,9 @@ def changment_de_base_ACP(input_path, output_path):
 
     pts_rot = centered_pts @ R
 
-    z_min = pts_rot[:, 2].min()
-    eps = (pts_rot[:, 2].max() - z_min) * 1e-3
-    base = pts_rot[np.abs(pts_rot[:, 2] - z_min) < eps]
-
-    min_x, max_x = base[:, 0].min(), base[:, 0].max()
-    min_y, max_y = base[:, 1].min(), base[:, 1].max()
-    origin = np.array([min_x, min_y, z_min])
+    # On place l'origine du repère au coin inférieur gauche de la boîte englobante
+    min_x, min_y, min_z = pts_rot[:, 0].min(), pts_rot[:, 1].min(), pts_rot[:, 2].min()
+    origin = np.array([min_x, min_y, min_z])
 
     # 6) Translation pour placer l'origine à (0,0,0)
     pts_final = pts_rot - origin
