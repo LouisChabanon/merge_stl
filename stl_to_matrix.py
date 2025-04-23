@@ -1,54 +1,8 @@
 import numpy as np
 from stl import mesh
-import os
+from shapely.geometry import Polygon, box
+import matplotlib.pyplot as plt
 
-
-"""
-def find_refs_points(stl):
-    \"""
-    Trouve les points de références pour la transformation:
-    \"""
-    pts = stl.vectors.reshape(-1, 3)
-    y_min = pts[:, 1].min()
-
-    # Pas sûr que ce soit la bonne méthode pour trouver le plan de base
-    eps = (pts[:, 1].max() - y_min) * 1e-3
-    base_plane = pts[np.abs(pts[:,2] - y_min) < eps]
-    # On prend le point le plus à gauche et le plus à droite de la base
-    x_min, x_max = base_plane[:, 0].min(), base_plane[:, 0].max()
-    z_min, z_max = base_plane[:, 2].min(), base_plane[:, 2].max()
-
-    origin = np.array([x_min, y_min, z_min])
-    x_ref = np.array([x_max, y_min, z_min])
-    z_ref = np.array([x_min, y_min, z_max])
-
-    return origin, x_ref, z_ref
-
-
-def changement_de_base(origin, x_ref, y_ref):
-    \"""
-    depuis 3 points de la base d'origine :
-     origin: point (0,0,0) dans le nouveau repère
-     x_ref: point dans la direction X
-     y_ref: point dans la direction Y
-
-    retourne la translation et la matrice de rotation
-    \"""
-
-
-    translation = np.array(origin)
-
-    v_x = np.array(x_ref) - translation
-    v_y = np.array(y_ref) - translation
-
-    e_x = v_x / np.linalg.norm(v_x)
-    e_y = v_y / np.linalg.norm(v_y)
-
-    e_z = np.cross(e_x, e_y)
-
-    R = np.array([e_x, e_y, e_z]).T
-    return translation, R
-"""
 
 def changment_de_base_ACP(input_path, output_path):
     """
@@ -70,7 +24,7 @@ def changment_de_base_ACP(input_path, output_path):
     centered_pts = pts - centre_gravite
 
     # Décomposition en valeurs propres (SVD)
-    #https://fr.wikipedia.org/wiki/D%C3%A9composition_en_valeurs_singuli%C3%A8res
+    # https://fr.wikipedia.org/wiki/D%C3%A9composition_en_valeurs_singuli%C3%A8res
     _, _, vt = np.linalg.svd(centered_pts, full_matrices=False)
     # Direction principales: e1, plus grande dilatation, e3, plus petite dilatation (normale de la surface)
     e1, e2, e3 = vt
@@ -87,7 +41,8 @@ def changment_de_base_ACP(input_path, output_path):
     pts_rot = centered_pts @ R
 
     # On place l'origine du repère au coin inférieur gauche de la boîte englobante
-    min_x, min_y, min_z = pts_rot[:, 0].min(), pts_rot[:, 1].min(), pts_rot[:, 2].min()
+    min_x, min_y, min_z = pts_rot[:, 0].min(
+    ), pts_rot[:, 1].min(), pts_rot[:, 2].min()
     origin = np.array([min_x, min_y, min_z])
 
     # 6) Translation pour placer l'origine à (0,0,0)
@@ -95,20 +50,87 @@ def changment_de_base_ACP(input_path, output_path):
 
     m.vectors = pts_final.reshape(-1, 3, 3)
     m.save(output_path)
-    
 
+
+def get_fill_per_pixel(mesh, voxel_size):
+
+    pts = mesh.vectors.reshape(-1, 3)
+    min_z = pts[:, 2].min()
+    max_z = pts[:, 2].max()
+    print(f"min_z: {min_z}, max_z: {max_z}")
+    eps = 2
+    mean_z_per_tri = mesh.vectors[:, :, 2].mean(axis=1)
+    bottom_mask = np.abs(mean_z_per_tri - min_z) < eps
+    bottom_tri = mesh.vectors[bottom_mask]
+
+    if bottom_tri.size == 0:
+        raise ValueError("No bottom triangle found")
+    else:
+        print(f"Found {len(bottom_tri)} bottom triangles")
+
+    tri_polys = [Polygon(tri[:, :2]) for tri in bottom_tri]
+    min_x, min_y = pts[:, 0].min(), pts[:, 1].min()
+    max_x, max_y = pts[:, 0].max(), pts[:, 1].max()
+
+    width_x = max_x - min_x
+    width_y = max_y - min_y
+
+    num_x = int(np.ceil(width_x / voxel_size))
+    num_y = int(np.ceil(width_y / voxel_size))
+
+    cell_area = voxel_size**2
+
+    fill_map = np.zeros((num_x, num_y), dtype=float)
+
+    for i in range(num_x):
+        x0 = min_x + i * voxel_size
+        x1 = x0 + voxel_size
+        for j in range(num_y):
+            yo = min_y + j * voxel_size
+            y1 = yo + voxel_size
+            cell = box(x0, yo, x1, y1)
+            intersect = sum(cell.intersection(poly).area for poly in tri_polys)
+            fill_map[i, j] = min(intersect / cell_area, 1.0)
+
+        return fill_map
+
+
+def visualize_fill_map(fill_map):
+    """
+    Display the fill map as a heatmap using matplotlib.
+
+    Parameters
+    ----------
+    fill_map : np.ndarray
+        The 2D array of fill percentages to visualize.
+    """
+    plt.figure(figsize=(8, 6))
+    plt.imshow(fill_map.T, origin='lower',
+               cmap='viridis', interpolation='nearest')
+    plt.colorbar(label='Fill Percentage')
+    plt.title('2D Fill Map of Bottom Surface')
+    plt.xlabel('X Pixels')
+    plt.ylabel('Y Pixels')
+    plt.tight_layout()
+    plt.show()
 
 
 def main():
     """
     Fonction principale
     """
-    for filename in os.listdir("sliced_stl"):
-        if filename.endswith(".stl"):
-            input_path = os.path.join("sliced_stl", filename)
-            output_path = os.path.join("rebased_stl", filename.replace(".stl", "_transformed_PCA.stl"))
-            changment_de_base_ACP(input_path, output_path)
-            print(f"Transformed {filename} to {output_path}")
+    # for filename in os.listdir("sliced_stl"):
+    #    if filename.endswith(".stl"):
+    #        input_path = os.path.join("sliced_stl", filename)
+    #        output_path = os.path.join(
+    #            "rebased_stl", filename.replace(".stl", "_transformed_PCA.stl"))
+    #        changment_de_base_ACP(input_path, output_path)
+    #        print(f"Transformed {filename} to {output_path}")
+
+    input_path = "rebased_stl/P1_transformed_PCA.stl"
+    m = mesh.Mesh.from_file(input_path)
+    fill_map = get_fill_per_pixel(m, 2)
+    visualize_fill_map(fill_map)
 
 
 if __name__ == "__main__":
