@@ -1,8 +1,9 @@
 import numpy as np
 from stl import mesh
 from shapely.geometry import Polygon, box
+from shapely import STRtree
 import matplotlib.pyplot as plt
-
+import os
 
 def changment_de_base_ACP(input_path, output_path):
     """
@@ -52,15 +53,24 @@ def changment_de_base_ACP(input_path, output_path):
     m.save(output_path)
 
 
-def get_fill_per_pixel(mesh, voxel_size):
+def get_fill_per_pixel(mesh, voxel_size, z=0, eps=0.5):
+    """
+    Calcule le pourcentage de remplissage pour chaque pixel d'une surface de normale z.
+    
+    mesh : stl.mesh.Mesh Le maillage STL à analyser.
+    voxel_size : float La taille de chaque pixel (voxel) dans l'espace 2D.
+    z : float La coordonnée z de la surface à analyser (par défaut 0).
+    eps: float La tolérance pour la détection de la surface (par défaut 0.5). Pas sur de la valeur.
+
+    retourne un tableau 2D représentant le pourcentage de remplissage pour chaque pixel.
+    """
 
     pts = mesh.vectors.reshape(-1, 3)
     min_z = pts[:, 2].min()
-    max_z = pts[:, 2].max()
-    print(f"min_z: {min_z}, max_z: {max_z}")
-    eps = 2
     mean_z_per_tri = mesh.vectors[:, :, 2].mean(axis=1)
-    bottom_mask = np.abs(mean_z_per_tri - min_z) < eps
+    
+    # On ne garde que les triangles dont la coordonnée z est proche de la coordonnée z de la surface
+    bottom_mask = np.abs(mean_z_per_tri - (min_z + z)) < eps
     bottom_tri = mesh.vectors[bottom_mask]
 
     if bottom_tri.size == 0:
@@ -68,6 +78,8 @@ def get_fill_per_pixel(mesh, voxel_size):
     else:
         print(f"Found {len(bottom_tri)} bottom triangles")
 
+    # On crée une liste de polygones à partir des triangles
+    # On ne garde que les 2 premières dimensions (x,y) pour le calcul de l'intersection
     tri_polys = [Polygon(tri[:, :2]) for tri in bottom_tri]
     min_x, min_y = pts[:, 0].min(), pts[:, 1].min()
     max_x, max_y = pts[:, 0].max(), pts[:, 1].max()
@@ -75,6 +87,7 @@ def get_fill_per_pixel(mesh, voxel_size):
     width_x = max_x - min_x
     width_y = max_y - min_y
 
+    # On crée une grille de pixels (voxel) sur la surface
     num_x = int(np.ceil(width_x / voxel_size))
     num_y = int(np.ceil(width_y / voxel_size))
 
@@ -82,25 +95,36 @@ def get_fill_per_pixel(mesh, voxel_size):
 
     fill_map = np.zeros((num_x, num_y), dtype=float)
 
+    # Calcul de l'intersection entre chaque triangle et chaque cellule de la grille
+    # Très, très lent (80x20pixels = 1600 cellules pour environ 28000 triangles = 44 millions d'intersections)
+    # On peut faire mieux en utilisant un algorithme de recherche spatiale (ex: R-tree)
+    # https://shapely.readthedocs.io/en/stable/strtree.html
+
+    # On crée un arbre de recherche spatiale pour les polygones
+    tree = STRtree(tri_polys)
+
     for i in range(num_x):
         x0 = min_x + i * voxel_size
         x1 = x0 + voxel_size
         for j in range(num_y):
+            #print(f"Traitement de ({i}, {j}) sur ({num_x}, {num_y})")
             yo = min_y + j * voxel_size
             y1 = yo + voxel_size
-            cell = box(x0, yo, x1, y1)
-            intersect = sum(cell.intersection(poly).area for poly in tri_polys)
+            cell = box(x0, yo, x1, y1) # Crée un polygone rectangle pour la cellule
+
+            candidate_index = tree.query(cell) # Trouve les polygones qui intersectent la cellule
+            candidate = tree.geometries.take(candidate_index) # Récupère les polygones
+
+            intersect = sum(cell.intersection(poly).area for poly in candidate) # Calcule l'aire d'intersection entre la cellule et les polygones
             fill_map[i, j] = min(intersect / cell_area, 1.0)
 
-        return fill_map
+    return fill_map
 
 
-def visualize_fill_map(fill_map):
+def visualize_fill_map(fill_map, file_name, show=True):
     """
     Display the fill map as a heatmap using matplotlib.
 
-    Parameters
-    ----------
     fill_map : np.ndarray
         The 2D array of fill percentages to visualize.
     """
@@ -112,7 +136,9 @@ def visualize_fill_map(fill_map):
     plt.xlabel('X Pixels')
     plt.ylabel('Y Pixels')
     plt.tight_layout()
-    plt.show()
+    if show:
+        plt.show()
+    plt.savefig(file_name)
 
 
 def main():
@@ -127,10 +153,19 @@ def main():
     #        changment_de_base_ACP(input_path, output_path)
     #        print(f"Transformed {filename} to {output_path}")
 
-    input_path = "rebased_stl/P1_transformed_PCA.stl"
-    m = mesh.Mesh.from_file(input_path)
-    fill_map = get_fill_per_pixel(m, 2)
-    visualize_fill_map(fill_map)
+    fill_maps = []
+
+    for filename in os.listdir("rebased_stl"):
+        if filename.endswith("_transformed_PCA.stl"):
+            file_path = os.path.join("rebased_stl", filename)
+            m = mesh.Mesh.from_file(file_path)
+            voxel_size = 2
+            plans = [0, voxel_size*2]
+            for i in plans:
+                fill_map = get_fill_per_pixel(m, voxel_size, z=i, eps=1)
+                fill_maps.append(fill_map)
+                visualize_fill_map(fill_map, f"fill_map/{filename}_{i}.png", show=False)
+
 
 
 if __name__ == "__main__":
