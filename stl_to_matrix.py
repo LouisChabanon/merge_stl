@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import os
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
+
 def changment_de_base_ACP(input_path, output_path):
     """
     2e méthode de changement de base : ACP (Analyse de Composantes Principales)
@@ -50,14 +51,13 @@ def changment_de_base_ACP(input_path, output_path):
     # 6) Translation pour placer l'origine à (0,0,0)
     pts_final = pts_rot - origin
 
-
     m.vectors = pts_final.reshape(-1, 3, 3)
 
     # 7) On nudge manuellement la pièce pour qu'elle soit dans le repère
     not_finished = True
     while not_finished:
         fig, ax = visualize_stl(m)
-        inp = input("Nudge the part manually to fit it in the new coordinate system. Press Enter when done.")
+        inp = input("Select axis to flip (x, y, z) or 'done' to finish: ")
         plt.close(fig)
         if inp == "done":
             not_finished = False
@@ -76,12 +76,11 @@ def changment_de_base_ACP(input_path, output_path):
     # 6) Translation pour placer l'origine à (0,0,0)
     pts_final = pts_rot - origin
 
-
     m.vectors = pts_final.reshape(-1, 3, 3)
     m.save(output_path)
 
 
-def nudge_part(m, translation=(0,0,0), flip=None):
+def nudge_part(m, translation=(0, 0, 0), flip=None):
     """
     Translate et/ou retourne la pièce
     m : stl.mesh.Mesh Le maillage STL à analyser.
@@ -102,8 +101,9 @@ def nudge_part(m, translation=(0,0,0), flip=None):
             elif axis == 'z':
                 m.vectors[:, :, 2] *= -1
             else:
-                raise ValueError("Invalid axis for flipping. Use 'x', 'y', or 'z'.")
-    
+                raise ValueError(
+                    "Invalid axis for flipping. Use 'x', 'y', or 'z'.")
+
     pts = m.vectors.reshape(-1, 3)
     min_coords = pts.min(axis=0)
     if np.any(min_coords < 0):
@@ -115,7 +115,7 @@ def nudge_part(m, translation=(0,0,0), flip=None):
 def get_fill_per_pixel(mesh, voxel_size, z=0, eps=0.5):
     """
     Calcule le pourcentage de remplissage pour chaque pixel d'une surface de normale z.
-    
+
     mesh : stl.mesh.Mesh Le maillage STL à analyser.
     voxel_size : float La taille de chaque pixel (voxel) dans l'espace 2D.
     z : float La coordonnée z de la surface à analyser (par défaut 0).
@@ -127,7 +127,7 @@ def get_fill_per_pixel(mesh, voxel_size, z=0, eps=0.5):
     pts = mesh.vectors.reshape(-1, 3)
     min_z = pts[:, 2].min()
     mean_z_per_tri = mesh.vectors[:, :, 2].mean(axis=1)
-    
+
     # On ne garde que les triangles dont la coordonnée z est proche de la coordonnée z de la surface
     bottom_mask = np.abs(mean_z_per_tri - (min_z + z)) < eps
     bottom_tri = mesh.vectors[bottom_mask]
@@ -166,15 +166,19 @@ def get_fill_per_pixel(mesh, voxel_size, z=0, eps=0.5):
         x0 = min_x + i * voxel_size
         x1 = x0 + voxel_size
         for j in range(num_y):
-            #print(f"Traitement de ({i}, {j}) sur ({num_x}, {num_y})")
+            # print(f"Traitement de ({i}, {j}) sur ({num_x}, {num_y})")
             yo = min_y + j * voxel_size
             y1 = yo + voxel_size
-            cell = box(x0, yo, x1, y1) # Crée un polygone rectangle pour la cellule
+            # Crée un polygone rectangle pour la cellule
+            cell = box(x0, yo, x1, y1)
 
-            candidate_index = tree.query(cell) # Trouve les polygones qui intersectent la cellule
-            candidate = tree.geometries.take(candidate_index) # Récupère les polygones
+            # Trouve les polygones qui intersectent la cellule
+            candidate_index = tree.query(cell)
+            candidate = tree.geometries.take(
+                candidate_index)  # Récupère les polygones
 
-            intersect = sum(cell.intersection(poly).area for poly in candidate) # Calcule l'aire d'intersection entre la cellule et les polygones
+            # Calcule l'aire d'intersection entre la cellule et les polygones
+            intersect = sum(cell.intersection(poly).area for poly in candidate)
             fill_map[i, j] = min(intersect / cell_area, 1.0)
 
     return fill_map
@@ -230,9 +234,10 @@ def compare_fill_maps(fill_maps_1, fill_maps_2):
     Compare deux fill maps
     """
     if len(fill_maps_1) != len(fill_maps_2):
-        print(f"Les deux fill maps n'ont pas le même nombre de plans: {len(fill_maps_1)} != {len(fill_maps_2)}")
+        print(
+            f"Les deux fill maps n'ont pas le même nombre de plans: {len(fill_maps_1)} != {len(fill_maps_2)}")
         return
-    
+
     for idx, (fm1, fm2) in enumerate(zip(fill_maps_1, fill_maps_2)):
         # Déterminer la taille cible
         max_x = max(fm1.shape[0], fm2.shape[0])
@@ -255,16 +260,20 @@ def main():
     """
     Fonction principale
     """
+    files1 = sorted(os.listdir("rebased_stl"))
+    files2 = sorted(os.listdir("rebased_stl_2"))
+    """
     for filename in os.listdir("sliced_stl_2"):
         if filename.endswith(".stl"):
             input_path = os.path.join("sliced_stl_2", filename)
-            output_path = os.path.join("rebased_stl_2", filename.replace(".stl", "_transformed_PCA.stl"))
+            output_path = os.path.join(
+                "rebased_stl_2", filename.replace(".stl", "_transformed_PCA.stl"))
             changment_de_base_ACP(input_path, output_path)
             print(f"Transformed {filename} to {output_path}")
-
+    """
     fill_maps_1 = []
 
-    for filename in os.listdir("rebased_stl"):
+    for filename in files1:
         if filename.endswith("_transformed_PCA.stl"):
             file_path = os.path.join("rebased_stl", filename)
             m = mesh.Mesh.from_file(file_path)
@@ -273,11 +282,12 @@ def main():
             for i in plans:
                 fill_map = get_fill_per_pixel(m, voxel_size, z=i, eps=1)
                 fill_maps_1.append(fill_map)
-                visualize_fill_map(fill_map, f"fill_map/{filename}_{i}.png", show=False)
+                visualize_fill_map(
+                    fill_map, f"fill_map/{filename}_{i}.png", show=False)
 
     fill_maps_2 = []
 
-    for filename in os.listdir("rebased_stl_2"):
+    for filename in files2:
         if filename.endswith("_transformed_PCA.stl"):
             file_path = os.path.join("rebased_stl_2", filename)
             m = mesh.Mesh.from_file(file_path)
@@ -286,11 +296,10 @@ def main():
             for i in plans:
                 fill_map = get_fill_per_pixel(m, voxel_size, z=i, eps=1)
                 fill_maps_2.append(fill_map)
-                visualize_fill_map(fill_map, f"fill_map_2/{filename}_{i}.png", show=False)    
+                visualize_fill_map(
+                    fill_map, f"fill_map_2/{filename}_{i}.png", show=False)
 
     compare_fill_maps(fill_maps_1, fill_maps_2)
-
-
 
 
 if __name__ == "__main__":
