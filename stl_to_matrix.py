@@ -5,6 +5,7 @@ from shapely import STRtree
 import matplotlib.pyplot as plt
 import os
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+import argparse
 
 
 def changment_de_base_ACP(input_path, output_path):
@@ -69,6 +70,7 @@ def changment_de_base_ACP(input_path, output_path):
                 print(f"Invalid input: {e}")
                 continue
     # On place l'origine du repère au coin inférieur gauche de la boîte englobante
+    pts_rot = m.vectors.reshape(-1, 3)
     min_x, min_y, min_z = pts_rot[:, 0].min(
     ), pts_rot[:, 1].min(), pts_rot[:, 2].min()
     origin = np.array([min_x, min_y, min_z])
@@ -256,29 +258,31 @@ def compare_fill_maps(fill_maps_1, fill_maps_2):
         visualize_fill_map(diff, f"fill_diff/diff_{idx}.png", show=False)
 
 
-def main():
+def main(args: argparse.Namespace):
     """
     Fonction principale
     """
     files1 = sorted(os.listdir("rebased_stl"))
     files2 = sorted(os.listdir("rebased_stl_2"))
-    """
-    for filename in os.listdir("sliced_stl_2"):
-        if filename.endswith(".stl"):
-            input_path = os.path.join("sliced_stl_2", filename)
-            output_path = os.path.join(
-                "rebased_stl_2", filename.replace(".stl", "_transformed_PCA.stl"))
-            changment_de_base_ACP(input_path, output_path)
-            print(f"Transformed {filename} to {output_path}")
-    """
+
+    voxel_size = 2
+    plans = [0, voxel_size, voxel_size*2]
+
+    if args.rebase:
+        for filename in os.listdir("sliced_stl_2"):
+            if filename.endswith(".stl"):
+                input_path = os.path.join("sliced_stl_2", filename)
+                output_path = os.path.join(
+                    "rebased_stl_2", filename.replace(".stl", "_transformed_PCA.stl"))
+                changment_de_base_ACP(input_path, output_path)
+                print(f"Transformed {filename} to {output_path}")
+
     fill_maps_1 = []
 
     for filename in files1:
         if filename.endswith("_transformed_PCA.stl"):
             file_path = os.path.join("rebased_stl", filename)
             m = mesh.Mesh.from_file(file_path)
-            voxel_size = 2
-            plans = [0, voxel_size*2]
             for i in plans:
                 fill_map = get_fill_per_pixel(m, voxel_size, z=i, eps=1)
                 fill_maps_1.append(fill_map)
@@ -291,8 +295,6 @@ def main():
         if filename.endswith("_transformed_PCA.stl"):
             file_path = os.path.join("rebased_stl_2", filename)
             m = mesh.Mesh.from_file(file_path)
-            voxel_size = 2
-            plans = [0, voxel_size*2]
             for i in plans:
                 fill_map = get_fill_per_pixel(m, voxel_size, z=i, eps=1)
                 fill_maps_2.append(fill_map)
@@ -303,4 +305,15 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        description="Convert STL files to a new coordinate system and visualize fill maps.")
+    parser.add_argument("--rebase", action="store_true",
+                        help="Rebase STL files to a new coordinate system.")
+    parser.add_argument("--compare", action="store_true",
+                        help="Compare fill maps of two sets of STL files.")
+    parser.add_argument("--visualize", action="store_true",
+                        help="Visualize fill maps.")
+    parser.add_argument("--voxel_size", type=float, default=2,
+                        help="Size of each voxel in the fill map.")
+    args = parser.parse_args()
+    main(args)
