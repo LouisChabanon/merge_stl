@@ -1,14 +1,24 @@
+import argparse
+import logging
+import os
+from pathlib import Path
+from typing import List, Tuple
+
 import numpy as np
 from stl import mesh
 from shapely.geometry import Polygon, box
 from shapely import STRtree
 import matplotlib.pyplot as plt
-import os
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-import argparse
 
 
-def changment_de_base_ACP(input_path, output_path):
+# Logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+
+
+def changment_de_base_ACP(input_path: Path, output_path: Path):
     """
     2e méthode de changement de base : ACP (Analyse de Composantes Principales)
     https://fr.wikipedia.org/wiki/Analyse_en_composantes_principales
@@ -39,14 +49,15 @@ def changment_de_base_ACP(input_path, output_path):
     if e3[2] < 0:
         e3 = -e3
 
+    #visualiser_repere_acp(m, centre_gravite, e1, e2, e3)
+
     # Matrice de rotation
     R = np.vstack([e1, e2, e3]).T
 
     pts_rot = centered_pts @ R
 
     # On place l'origine du repère au coin inférieur gauche de la boîte englobante
-    min_x, min_y, min_z = pts_rot[:, 0].min(
-    ), pts_rot[:, 1].min(), pts_rot[:, 2].min()
+    min_x, min_y, min_z = pts_rot[:, 0].min(), pts_rot[:, 1].min(), pts_rot[:, 2].min()
     origin = np.array([min_x, min_y, min_z])
 
     # 6) Translation pour placer l'origine à (0,0,0)
@@ -69,10 +80,10 @@ def changment_de_base_ACP(input_path, output_path):
             except ValueError as e:
                 print(f"Invalid input: {e}")
                 continue
+    
     # On place l'origine du repère au coin inférieur gauche de la boîte englobante
     pts_rot = m.vectors.reshape(-1, 3)
-    min_x, min_y, min_z = pts_rot[:, 0].min(
-    ), pts_rot[:, 1].min(), pts_rot[:, 2].min()
+    min_x, min_y, min_z = pts_rot[:, 0].min(), pts_rot[:, 1].min(), pts_rot[:, 2].min()
     origin = np.array([min_x, min_y, min_z])
 
     # 6) Translation pour placer l'origine à (0,0,0)
@@ -80,6 +91,46 @@ def changment_de_base_ACP(input_path, output_path):
 
     m.vectors = pts_final.reshape(-1, 3, 3)
     m.save(output_path)
+    logger.info(f"Saved transformed mesh to {output_path}")
+
+
+def visualiser_repere_acp(m, centre, e1, e2, e3, scale=50):
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    ax.set_title("Repère ACP")
+
+    # Affichage de la pièce STL
+    collection = Poly3DCollection(m.vectors, alpha=0.3, facecolor='silver', edgecolor='k')
+    ax.add_collection3d(collection)
+    for poly in ax.collections:
+        poly.set_alpha(1.0)
+        poly.set_edgecolor('k')
+        poly.set_linewidth(0.1)
+
+    vecteurs = [e1, e2, e3]
+    couleurs = ['r', 'g', 'b']
+    labels = ['e1 (max var)', 'e2', 'e3 (min var)']
+
+    for vec, couleur, label in zip(vecteurs, couleurs, labels):
+        ax.plot(
+            [centre[0], centre[0] + vec[0]*scale],
+            [centre[1], centre[1] + vec[1]*scale],
+            [centre[2], centre[2] + vec[2]*scale],
+            color=couleur, linewidth=3, label=label, zorder=10
+        )
+
+    
+
+    # Ajustement des axes
+    ax.autoscale()
+
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Z")
+    ax.legend()
+    plt.savefig('test.png')
+    print("Saved figure to test.png")
 
 
 def nudge_part(m, translation=(0, 0, 0), flip=None):
@@ -114,7 +165,7 @@ def nudge_part(m, translation=(0, 0, 0), flip=None):
     return m
 
 
-def get_fill_per_pixel(mesh, voxel_size, z=0, eps=0.5):
+def get_fill_per_pixel(mesh, voxel_size, z=0, eps=0.5) -> np.ndarray:
     """
     Calcule le pourcentage de remplissage pour chaque pixel d'une surface de normale z.
 
@@ -135,9 +186,9 @@ def get_fill_per_pixel(mesh, voxel_size, z=0, eps=0.5):
     bottom_tri = mesh.vectors[bottom_mask]
 
     if bottom_tri.size == 0:
-        raise ValueError("No bottom triangle found")
+        raise RuntimeError("No bottom triangle found")
     else:
-        print(f"Found {len(bottom_tri)} bottom triangles")
+        logger.debug(f"Found {len(bottom_tri)} bottom triangles for z={z}")
 
     # On crée une liste de polygones à partir des triangles
     # On ne garde que les 2 premières dimensions (x,y) pour le calcul de l'intersection
@@ -178,6 +229,7 @@ def get_fill_per_pixel(mesh, voxel_size, z=0, eps=0.5):
             candidate_index = tree.query(cell)
             candidate = tree.geometries.take(
                 candidate_index)  # Récupère les polygones
+            logger.debug(f"Found {len(candidate)} candidates for cell ({i}, {j})")
 
             # Calcule l'aire d'intersection entre la cellule et les polygones
             intersect = sum(cell.intersection(poly).area for poly in candidate)
@@ -186,7 +238,7 @@ def get_fill_per_pixel(mesh, voxel_size, z=0, eps=0.5):
     return fill_map
 
 
-def visualize_stl(mesh):
+def visualize_stl(mesh: mesh.Mesh) -> Tuple[plt.Figure, plt.Axes]:
     # Create a new plot
     figure = plt.figure()
     axes = figure.add_subplot(111, projection='3d')
@@ -199,19 +251,22 @@ def visualize_stl(mesh):
         poly.set_alpha(1.0)
         poly.set_edgecolor('k')
         poly.set_linewidth(0.1)
+        if poly.z
     # Auto scale to the mesh size
     scale = mesh.points.flatten()
     axes.auto_scale_xyz(scale, scale, scale)
     axes.set_xlabel('X')
     axes.set_ylabel('Y')
     axes.set_zlabel('Z')
+    figure.tight_layout()
     # Show the plot to the screen
+    logger.info("Displaying STL mesh")
     figure.show()
 
     return figure, axes
 
 
-def visualize_fill_map(fill_map, file_name, show=True):
+def visualize_fill_map(fill_map: np.ndarray, file_name: str, show=True):
     """
     Display the fill map as a heatmap using matplotlib.
 
@@ -229,9 +284,10 @@ def visualize_fill_map(fill_map, file_name, show=True):
     if show:
         plt.show()
     plt.savefig(file_name)
+    logger.info(f"Saved fill map to {file_name}")
 
 
-def compare_fill_maps(fill_maps_1, fill_maps_2):
+def compare_fill_maps(fill_maps_1: List[np.ndarray], fill_maps_2: List[np.ndarray]):
     """
     Compare deux fill maps
     """
@@ -252,7 +308,7 @@ def compare_fill_maps(fill_maps_1, fill_maps_2):
         pad2[:fm2.shape[0], :fm2.shape[1]] = fm2
 
         diff = np.abs(pad1 - pad2)
-        print(f"Différence moyenne entre les fill maps {idx}: {diff.mean()}")
+        logger.info(f"Différence moyenne entre les fill maps {idx}: {diff.mean()}")
 
         # Visualisation
         visualize_fill_map(diff, f"fill_diff/diff_{idx}.png", show=False)
@@ -299,10 +355,40 @@ def main(args: argparse.Namespace):
                 fill_map = get_fill_per_pixel(m, voxel_size, z=i, eps=1)
                 fill_maps_2.append(fill_map)
                 visualize_fill_map(
-                    fill_map, f"fill_map_2/{filename}_{i}.png", show=False)
+                    fill_map, f"fill_map_2/{filename}{i}.png", show=False)
 
     compare_fill_maps(fill_maps_1, fill_maps_2)
 
+def test_eps_sensitivity():
+    """
+    Test l'inflence de eps sur le résultat de remplissage
+    """
+
+    eps = np.linspace(0.1, 2, 20)
+    files = sorted(os.listdir("rebased_stl"))
+    
+    for i in files:
+    # Sélectionne un fichier STL aléatoire
+        file_path = os.path.join("rebased_stl", i)
+        m = mesh.Mesh.from_file(file_path)
+        logger.info(f"Selected file: {file_path}")
+        voxel_size = 2
+        maps = []
+        for e in eps:   
+            # Test sur le plan du milieu
+            logger.info(f"Calculating fill map for eps={e}")
+            maps.append(get_fill_per_pixel(m, voxel_size, voxel_size*2, eps=e))
+
+        # Plot la variation de remplissage en fonction de eps
+        moy_remplissage = np.array([i.mean() for i in maps])
+
+        plt.plot(eps, moy_remplissage, label=f"Plan {i}")
+    plt.legend()
+    plt.grid()
+    plt.xlabel("eps")
+    plt.ylabel("Moyenne de remplissage")
+    plt.title("Influence de eps sur le remplissage")
+    plt.savefig("eps_sensitivity.png")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -315,5 +401,12 @@ if __name__ == "__main__":
                         help="Visualize fill maps.")
     parser.add_argument("--voxel_size", type=float, default=2,
                         help="Size of each voxel in the fill map.")
+    parser.add_argument("--debug", action="store_true",
+                        help="Enable debug mode for detailed logging.")
     args = parser.parse_args()
-    main(args)
+    if args.debug:
+        logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.INFO)
+
+    test_eps_sensitivity()
