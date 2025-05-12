@@ -251,7 +251,6 @@ def visualize_stl(mesh: mesh.Mesh) -> Tuple[plt.Figure, plt.Axes]:
         poly.set_alpha(1.0)
         poly.set_edgecolor('k')
         poly.set_linewidth(0.1)
-        if poly.z
     # Auto scale to the mesh size
     scale = mesh.points.flatten()
     axes.auto_scale_xyz(scale, scale, scale)
@@ -322,6 +321,7 @@ def main(args: argparse.Namespace):
     files2 = sorted(os.listdir("rebased_stl_2"))
 
     voxel_size = 2
+    eps = 1
     plans = [0, voxel_size, voxel_size*2]
 
     if args.rebase:
@@ -340,7 +340,7 @@ def main(args: argparse.Namespace):
             file_path = os.path.join("rebased_stl", filename)
             m = mesh.Mesh.from_file(file_path)
             for i in plans:
-                fill_map = get_fill_per_pixel(m, voxel_size, z=i, eps=1)
+                fill_map = get_fill_per_pixel(m, voxel_size, z=i, eps=eps)
                 fill_maps_1.append(fill_map)
                 visualize_fill_map(
                     fill_map, f"fill_map/{filename}_{i}.png", show=False)
@@ -352,7 +352,7 @@ def main(args: argparse.Namespace):
             file_path = os.path.join("rebased_stl_2", filename)
             m = mesh.Mesh.from_file(file_path)
             for i in plans:
-                fill_map = get_fill_per_pixel(m, voxel_size, z=i, eps=1)
+                fill_map = get_fill_per_pixel(m, voxel_size, z=i, eps=eps)
                 fill_maps_2.append(fill_map)
                 visualize_fill_map(
                     fill_map, f"fill_map_2/{filename}{i}.png", show=False)
@@ -409,4 +409,4 @@ if __name__ == "__main__":
     else:
         logger.setLevel(logging.INFO)
 
-    test_eps_sensitivity()
+    main(args)
