@@ -3,6 +3,7 @@ import logging
 import os
 from pathlib import Path
 from typing import List, Tuple
+import csv
 
 import numpy as np
 from stl import mesh
@@ -17,6 +18,52 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
+def write_output_file(output_path: str, data: np.ndarray, column_name: str):
+    """
+    Appends a single column to an existing CSV file, or creates a new file if empty/missing.
+
+    Parameters:
+        output_path (str): Path to the target CSV file.
+        data (np.ndarray): 1D NumPy array representing the new column's data.
+        column_name (str): Name of the new column.
+
+    Behavior:
+        - If the file exists and has data: appends the column to each row.
+        - If the file does not exist or is empty: creates it with only the new column.
+    """
+    if data.ndim != 1:
+        raise ValueError("data must be a 1D NumPy array (a single column)")
+
+    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        # File does not exist or is empty — create with only the new column
+        with open(output_path, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow([column_name])
+            for value in data:
+                writer.writerow([value])
+    else:
+        # File exists and has content — append the column
+        with open(output_path, 'r', newline='') as csvfile:
+            reader = list(csv.reader(csvfile))
+            if not reader:
+                raise ValueError("CSV appears to be empty despite nonzero file size.")
+
+            header = reader[0]
+            rows = reader[1:]
+
+            if len(rows) != len(data):
+                raise ValueError(f"Length mismatch: CSV has {len(rows)} rows, but data has {len(data)} elements")
+
+        # Add new column
+        header.append(column_name)
+        for i, row in enumerate(rows):
+            row.append(str(data[i]))
+
+        # Write updated content
+        with open(output_path, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(header)
+            writer.writerows(rows)
 
 def changment_de_base_ACP(input_path: Path, output_path: Path):
     """
@@ -235,6 +282,8 @@ def get_fill_per_pixel(mesh, voxel_size, z=0, eps=0.5) -> np.ndarray:
             intersect = sum(cell.intersection(poly).area for poly in candidate)
             fill_map[i, j] = min(intersect / cell_area, 1.0)
 
+    # log la moyenne de remplissage
+    
     return fill_map
 
 
@@ -309,6 +358,10 @@ def compare_fill_maps(fill_maps_1: List[np.ndarray], fill_maps_2: List[np.ndarra
         diff = np.abs(pad1 - pad2)
         logger.info(f"Différence moyenne entre les fill maps {idx}: {diff.mean()}")
 
+        
+
+        #logger.info(f"Erreur max entre les fill maps {idx}: {diff.max()}")
+
         # Visualisation
         visualize_fill_map(diff, f"fill_diff/diff_{idx}.png", show=False)
 
@@ -344,8 +397,12 @@ def main(args: argparse.Namespace):
                 fill_maps_1.append(fill_map)
                 visualize_fill_map(
                     fill_map, f"fill_map/{filename}_{i}.png", show=False)
+    mean_fill_map = np.array([i.mean() for i in fill_maps_1])
+    write_output_file(
+        "fill_map.csv", mean_fill_map, "mean_fill_map 1")
 
     fill_maps_2 = []
+    
 
     for filename in files2:
         if filename.endswith("_transformed_PCA.stl"):
@@ -356,6 +413,9 @@ def main(args: argparse.Namespace):
                 fill_maps_2.append(fill_map)
                 visualize_fill_map(
                     fill_map, f"fill_map_2/{filename}{i}.png", show=False)
+    mean_fill_map = np.array([i.mean() for i in fill_maps_2])
+    write_output_file(
+        "fill_map.csv", mean_fill_map, "mean_fill_map 2")
 
     compare_fill_maps(fill_maps_1, fill_maps_2)
 
@@ -364,7 +424,7 @@ def test_eps_sensitivity():
     Test l'inflence de eps sur le résultat de remplissage
     """
 
-    eps = np.linspace(0.1, 2, 20)
+    eps = np.linspace(0.1, 10, 10)
     files = sorted(os.listdir("rebased_stl"))
     
     for i in files:
@@ -409,4 +469,4 @@ if __name__ == "__main__":
     else:
         logger.setLevel(logging.INFO)
 
-    main(args)
+    test_eps_sensitivity()
