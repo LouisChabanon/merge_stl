@@ -239,7 +239,7 @@ def get_fill_per_pixel(mesh, voxel_size, z=0, eps=0.5) -> np.ndarray:
 
     # On crée une liste de polygones à partir des triangles
     # On ne garde que les 2 premières dimensions (x,y) pour le calcul de l'intersection
-    tri_polys = [Polygon(tri[:, :2]) for tri in bottom_tri]
+    tri_polys = [Polygon(tri) for tri in bottom_tri]
     min_x, min_y = pts[:, 0].min(), pts[:, 1].min()
     max_x, max_y = pts[:, 0].max(), pts[:, 1].max()
 
@@ -323,7 +323,7 @@ def visualize_fill_map(fill_map: np.ndarray, file_name: str, show=True):
     """
     plt.figure(figsize=(8, 6))
     plt.imshow(fill_map.T, origin='lower',
-               cmap='viridis', interpolation='nearest')
+               cmap='viridis', interpolation='nearest', vmin=0, vmax=1)
     plt.colorbar(label='Fill Percentage')
     plt.title('2D Fill Map of Bottom Surface')
     plt.xlabel('X Pixels')
@@ -412,7 +412,7 @@ def main(args: argparse.Namespace):
                 fill_map = get_fill_per_pixel(m, voxel_size, z=i, eps=eps)
                 fill_maps_2.append(fill_map)
                 visualize_fill_map(
-                    fill_map, f"fill_map_2/{filename}{i}.png", show=False)
+                    fill_map, f"fill_map_2/{filename}_{i}.png", show=False)
     mean_fill_map = np.array([i.mean() for i in fill_maps_2])
     write_output_file(
         "fill_map.csv", mean_fill_map, "mean_fill_map 2")
@@ -469,4 +469,4 @@ if __name__ == "__main__":
     else:
         logger.setLevel(logging.INFO)
 
-    test_eps_sensitivity()
+    main(args)
